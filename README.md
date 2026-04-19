@@ -1,0 +1,2 @@
+# AutoTrading
+Automated Trading System
