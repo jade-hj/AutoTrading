@@ -59,6 +59,24 @@ STOP_LOSS_RATIO    = 0.05   # 손절 비율 (5%)
 TAKE_PROFIT_RATIO  = 0.10   # 익절 비율 (10%)
 ORDER_INTERVAL_SEC = 60     # 합의체 실행 주기 (초)
 
+# ── 단타 설정 ──────────────────────────────────────────────────
+SCALPING_INTERVAL_SEC     = 300    # 5분 루프 (초)
+SCALPING_CANDLE_COUNT     = 40     # 분봉 조회 수 (지표 계산용)
+SCALPING_STOP_LOSS        = 0.005  # 손절 -0.5%
+SCALPING_TAKE_PROFIT_1    = 0.008  # 1차 익절 +0.8% (절반 매도)
+SCALPING_TAKE_PROFIT_2    = 0.015  # 2차 익절 +1.5% (전량 매도)
+SCALPING_MAX_POSITIONS    = 3      # 최대 동시 보유 종목 수
+SCALPING_POSITION_RATIO   = 0.20   # 종목당 최대 투자 비중
+SCALPING_DAILY_LOSS_LIMIT = 0.03   # 일일 손실 한도 -3% (초과 시 당일 중지)
+SCALPING_VOLUME_SURGE     = 3.0    # 거래량 급증 기준 (전일 동시간대 대비 배수)
+SCALPING_RSI_MIN          = 50     # RSI 진입 하한
+SCALPING_RSI_MAX          = 70     # RSI 진입 상한
+SCALPING_EXEC_START       = "09:30"  # 신규 진입 허용 시작
+SCALPING_EXEC_END         = "14:50"  # 신규 진입 허용 종료
+SCALPING_GAP_LIMIT        = 0.02   # 갭 필터 — 시가 갭 ±2% 초과 종목 제외
+SCALPING_KOSPI_RANGE      = 0.003  # 코스피 ±0.3% 이내면 관망
+SCALPING_MONITOR_SEC      = 30     # 포지션 모니터 주기 (초)
+
 # ── 로깅 ───────────────────────────────────────────────────────
 LOG_DIR  = BASE_DIR / "logs"
 LOG_DIR.mkdir(exist_ok=True)

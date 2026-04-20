@@ -56,6 +56,70 @@ class MarketContext:
     total_portfolio:   int           # 총 포트폴리오 가치 (원)
 
 
+# ── 단타 전용 데이터 구조 ──────────────────────────────────────
+
+@dataclass
+class ScalpingContext:
+    """단타 Agent 3개에게 공통으로 전달되는 컨텍스트"""
+    stock_code:        str
+    stock_name:        str
+    current_price:     int
+    change_rate:       float        # 전일 대비 등락률 (%)
+    open_price:        int          # 당일 시가
+    minute_candles:    list[dict]   # 분봉 OHLCV (오름차순)
+    indicators:        dict         # RSI, MACD, MA, 볼린저밴드
+    volume_ratio:      float        # 현재 거래량 / 전일 동시간대 평균 배수
+    available_cash:    int
+    holdings:          list[dict]
+    holding_count:     int          # 현재 보유 종목 수
+    kospi_change_rate: float        # 코스피 등락률 (%)
+
+
+@dataclass
+class SignalDecision:
+    """Model A (신호 탐지) 출력"""
+    action:       Action
+    confidence:   float        # 0.0 ~ 1.0
+    target_price: int          # 목표가
+    reasoning:    str
+
+
+@dataclass
+class RiskDecision:
+    """Model B (리스크 관리) 출력"""
+    approved:            bool
+    quantity:            int
+    stop_loss_price:     int   # 손절가
+    take_profit_1_price: int   # 1차 익절가 (+0.8%)
+    take_profit_2_price: int   # 2차 익절가 (+1.5%)
+    reasoning:           str
+
+
+@dataclass
+class MarketDecision:
+    """Model C (시장 필터) 출력"""
+    go:         bool
+    confidence: float
+    reasoning:  str
+
+
+@dataclass
+class ScalpingResult:
+    """3개 Agent 합의 최종 결과"""
+    stock_code:          str
+    stock_name:          str
+    action:              Action
+    quantity:            int
+    stop_loss_price:     int
+    take_profit_1_price: int
+    take_profit_2_price: int
+    executed:            bool
+    reason:              str
+    signal:              SignalDecision  = field(default=None)
+    risk:                RiskDecision    = field(default=None)
+    market:              MarketDecision  = field(default=None)
+
+
 class BaseAgent(ABC):
     """모든 AI Agent의 기본 클래스"""
 

@@ -297,6 +297,58 @@ def place_order(
     }
 
 
+def get_minute_ohlcv(stock_code: str, count: int = 40) -> list[dict]:
+    """분봉 OHLCV를 조회한다 (TR_ID: FHKST03010200).
+
+    Args:
+        count: 반환할 최대 봉 수 (최신순)
+    Returns:
+        [{"time": "093000", "open": .., "high": .., "low": .., "close": .., "volume": ..}, ...]
+        시간 오름차순 정렬 (오래된 것 → 최신)
+    """
+    now_str = datetime.now().strftime("%H%M%S")
+    data = _get(
+        "uapi/domestic-stock/v1/quotations/inquire-time-itemchartprice",
+        tr_id="FHKST03010200",
+        params={
+            "FID_ETC_CLS_CODE":        "0",   # 0=1분봉
+            "FID_COND_MRKT_DIV_CODE":  "J",
+            "FID_INPUT_ISCD":          stock_code,
+            "FID_INPUT_HOUR_1":        now_str,
+            "FID_PW_DATA_INCU_YN":     "Y",
+        },
+    )
+    rows = []
+    for item in data.get("output2", [])[:count]:
+        rows.append({
+            "date":   item.get("stck_cntg_hour", ""),  # indicators._to_df용 key
+            "open":   int(item.get("stck_oprc", 0)),
+            "high":   int(item.get("stck_hgpr", 0)),
+            "low":    int(item.get("stck_lwpr", 0)),
+            "close":  int(item.get("stck_prpr", 0)),
+            "volume": int(item.get("cntg_vol", 0)),
+        })
+    # API는 최신순 반환 → 오름차순 정렬
+    return list(reversed(rows))
+
+
+def get_kospi_change_rate() -> float:
+    """코스피 지수 등락률(%)을 조회한다. 실패 시 0.0 반환."""
+    try:
+        data = _get(
+            "uapi/domestic-stock/v1/quotations/inquire-index-price",
+            tr_id="FHPUP02100000",
+            params={
+                "FID_COND_MRKT_DIV_CODE": "U",
+                "FID_INPUT_ISCD":         "0001",
+            },
+        )
+        return float(data["output"].get("bstp_nmix_prdy_ctrt", 0.0))
+    except Exception as e:
+        logger.warning("코스피 등락률 조회 실패: %s", e)
+        return 0.0
+
+
 def cancel_order(order_no: str, stock_code: str, quantity: int) -> dict:
     """주문을 취소한다."""
     tr_id = "VTTC0803U" if settings.KIS_IS_VIRTUAL else "TTTC0803U"
