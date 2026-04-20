@@ -73,14 +73,21 @@ desktop.ini
 *.swo
 *~
 
-# Node (if any frontend/tooling)
+# Node / Frontend
 node_modules/
+frontend/node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+frontend/dist/
 
 # Build artifacts
 *.so
 *.dylib
 *.dll
 .claude/
+
+# Backend secrets (중복 방지)
+backend/.env
+backend/Authentication_secret.txt
+backend/.kis_token_cache
