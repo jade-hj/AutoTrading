@@ -10,6 +10,7 @@ import logging
 from kis import rest_client as kis
 from trading.portfolio import Portfolio
 from config import settings
+from utils.logger import trade_log
 
 logger = logging.getLogger(__name__)
 
@@ -169,10 +170,26 @@ class ScalpingPositionTracker:
                 self.unregister(code)
 
     def _execute_sell(self, code: str, qty: int, reason: str) -> None:
+        pos = self._positions.get(code, {})
         try:
+            price_data  = kis.get_current_price(code)
+            sell_price  = price_data["current_price"]
+            entry_price = pos.get("entry_price", sell_price)
+
             order = kis.place_order(code, "SELL", qty, price=0)
-            logger.info("[PositionTracker] 매도 완료: %s %d주 (%s) 주문번호=%s",
-                        code, qty, reason, order["order_no"])
+            order_no = order["order_no"]
+
+            # 구조화 거래 로그 (콘솔 + 파일)
+            trade_log.log_sell(
+                stock_code  = code,
+                stock_name  = pos.get("stock_name", code),
+                sell_price  = sell_price,
+                quantity    = qty,
+                entry_price = entry_price,
+                reason      = reason,
+                order_no    = order_no,
+            )
+            self._record_pnl(entry_price, sell_price, qty)
             self.unregister(code)
         except Exception as e:
             logger.error("[PositionTracker] 매도 실패: %s — %s", code, e)

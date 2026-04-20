@@ -27,7 +27,7 @@ from agents.base_agent import Action, ScalpingContext
 from agents.scalping_coordinator import ScalpingCoordinator
 from trading.position_tracker import ScalpingPositionTracker
 from kis import rest_client as kis
-from utils.logger import setup_logger
+from utils.logger import setup_logger, trade_log
 
 setup_logger()
 logger     = logging.getLogger(__name__)
@@ -145,16 +145,21 @@ async def scanning_loop(
                         order = kis.place_order(
                             result.stock_code, "BUY", result.quantity, price=0
                         )
-                        trade_log.info(
-                            "✅ 매수 체결 | %s %s | %d주 | 주문번호: %s",
-                            result.stock_code, result.stock_name,
-                            result.quantity, order["order_no"],
-                        )
-                        trade_log.info(
-                            "   손절: %s원 | 1차익절: %s원 | 2차익절: %s원",
-                            f"{result.stop_loss_price:,}",
-                            f"{result.take_profit_1_price:,}",
-                            f"{result.take_profit_2_price:,}",
+                        # 구조화 매수 로그 (콘솔 + 파일)
+                        trade_log.log_buy(
+                            stock_code    = result.stock_code,
+                            stock_name    = result.stock_name,
+                            buy_price     = ctx.current_price,
+                            quantity      = result.quantity,
+                            signal_action = str(result.signal.action) if result.signal else "BUY",
+                            signal_conf   = result.signal.confidence if result.signal else 0.0,
+                            signal_reason = result.signal.reasoning if result.signal else "",
+                            risk_reason   = result.risk.reasoning if result.risk else "",
+                            stop_loss     = result.stop_loss_price,
+                            tp1           = result.take_profit_1_price,
+                            tp2           = result.take_profit_2_price,
+                            market_reason = result.market.reasoning if result.market else "",
+                            order_no      = order["order_no"],
                         )
                         tracker.register(
                             stock_code          = result.stock_code,
@@ -173,7 +178,6 @@ async def scanning_loop(
                         logger.error("매수 주문 실패: %s — %s", result.stock_code, e)
 
                 elif result.executed and result.action == Action.SELL:
-                    # SELL 신호: 보유 종목 중 해당 종목 있으면 매도
                     held = next(
                         (h for h in balance["holdings"]
                          if h["stock_code"] == result.stock_code), None
@@ -183,10 +187,15 @@ async def scanning_loop(
                             order = kis.place_order(
                                 result.stock_code, "SELL", held["quantity"], price=0
                             )
-                            trade_log.info(
-                                "✅ 매도 체결 | %s %s | %d주 | 주문번호: %s",
-                                result.stock_code, result.stock_name,
-                                held["quantity"], order["order_no"],
+                            # 구조화 매도 로그 (콘솔 + 파일)
+                            trade_log.log_sell(
+                                stock_code  = result.stock_code,
+                                stock_name  = result.stock_name,
+                                sell_price  = ctx.current_price,
+                                quantity    = held["quantity"],
+                                entry_price = int(held.get("avg_price", ctx.current_price)),
+                                reason      = f"AI 신호 매도 — {result.signal.reasoning[:60] if result.signal else ''}",
+                                order_no    = order["order_no"],
                             )
                             tracker.unregister(result.stock_code)
                         except Exception as e:
