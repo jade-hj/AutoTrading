@@ -332,8 +332,12 @@ def get_minute_ohlcv(stock_code: str, count: int = 40) -> list[dict]:
     return list(reversed(rows))
 
 
-def get_kospi_change_rate() -> float:
-    """코스피 지수 등락률(%)을 조회한다. 실패 시 0.0 반환."""
+def get_kospi_index() -> dict:
+    """코스피 지수 현황을 조회한다. 실패 시 빈 dict 반환.
+
+    Returns:
+        {index: float, change_rate: float, change: float, volume: int}
+    """
     try:
         data = _get(
             "uapi/domestic-stock/v1/quotations/inquire-index-price",
@@ -343,10 +347,21 @@ def get_kospi_change_rate() -> float:
                 "FID_INPUT_ISCD":         "0001",
             },
         )
-        return float(data["output"].get("bstp_nmix_prdy_ctrt", 0.0))
+        out = data.get("output", {})
+        return {
+            "index":       float(out.get("bstp_nmix_prpr",      0.0)),  # 현재 지수
+            "change":      float(out.get("bstp_nmix_prdy_vrss", 0.0)),  # 전일 대비
+            "change_rate": float(out.get("bstp_nmix_prdy_ctrt", 0.0)),  # 등락률 %
+            "volume":      int(  out.get("acml_vol",             0)),    # 누적 거래량
+        }
     except Exception as e:
-        logger.warning("코스피 등락률 조회 실패: %s", e)
-        return 0.0
+        logger.warning("코스피 지수 조회 실패: %s", e)
+        return {}
+
+
+def get_kospi_change_rate() -> float:
+    """코스피 등락률(%)만 빠르게 반환한다. 실패 시 0.0."""
+    return get_kospi_index().get("change_rate", 0.0)
 
 
 def cancel_order(order_no: str, stock_code: str, quantity: int) -> dict:

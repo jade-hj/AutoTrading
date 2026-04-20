@@ -58,6 +58,76 @@ class TradeLogger:
     def __init__(self):
         self._logger = _get_trade_logger()
 
+    # ── 시장 현황 로그 ───────────────────────────────────────────
+    def log_market_status(
+        self,
+        kospi: dict,
+        balance: dict,
+        candidates: list[dict],
+        mode: str = "모의투자",
+    ) -> None:
+        """시스템 시작 시 시장 현황을 콘솔 + 파일에 기록한다."""
+        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        # 코스피 라인
+        idx   = kospi.get("index", 0.0)
+        rate  = kospi.get("change_rate", 0.0)
+        chg   = kospi.get("change", 0.0)
+        vol   = kospi.get("volume", 0)
+        sign  = "▲" if rate >= 0 else "▼"
+        kospi_line = (
+            f"  KOSPI   : {idx:,.2f}  {sign}{abs(chg):.2f} ({rate:+.2f}%)  "
+            f"거래량: {vol:,}"
+            if idx else "  KOSPI   : 조회 실패"
+        )
+
+        # 계좌 라인
+        cash  = balance.get("available_cash", 0)
+        total = balance.get("total_eval",     0)
+        holds = balance.get("holdings",       [])
+
+        holding_lines = []
+        if holds:
+            for h in holds:
+                pnl_sign = "+" if h["profit_loss"] >= 0 else ""
+                holding_lines.append(
+                    f"    [{h['stock_code']}] {h['stock_name']}  "
+                    f"{h['quantity']:,}주  평균단가: {h['avg_price']:,.0f}원  "
+                    f"손익: {pnl_sign}{h['profit_loss']:.2f}%"
+                )
+        else:
+            holding_lines.append("    보유 종목 없음")
+
+        # 거래량 상위 후보 종목 라인
+        cand_lines = []
+        for i, c in enumerate(candidates[:10], 1):
+            rr = c.get("change_rate", 0.0)
+            cs = "+" if rr >= 0 else ""
+            cand_lines.append(
+                f"    {i:2d}. [{c['stock_code']}] {c['stock_name']:<12}  "
+                f"{c['current_price']:>8,}원  ({cs}{rr:.2f}%)  "
+                f"거래량: {c['volume']:>12,}"
+            )
+
+        lines = [
+            _SEP,
+            f"[시장 현황] {ts}  ({mode})",
+            "",
+            "  ── 지수 ──────────────────────────────────────────────",
+            kospi_line,
+            "",
+            "  ── 계좌 ──────────────────────────────────────────────",
+            f"  예수금  : {cash:,}원",
+            f"  총평가  : {total:,}원",
+            f"  보유종목: {len(holds)}개",
+            *holding_lines,
+            "",
+            "  ── 거래량 상위 후보 종목 ─────────────────────────────",
+            *cand_lines,
+            _SEP,
+        ]
+        self._logger.info("\n" + "\n".join(lines))
+
     # ── 매수 로그 ─────────────────────────────────────────────
     def log_buy(
         self,

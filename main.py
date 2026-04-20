@@ -29,6 +29,21 @@ from trading.position_tracker import ScalpingPositionTracker
 from kis import rest_client as kis
 from utils.logger import setup_logger, trade_log
 
+def _print_market_status() -> None:
+    """시스템 시작 시 시장 현황을 한 번 조회해 로그로 남긴다."""
+    try:
+        kospi      = kis.get_kospi_index()
+        balance    = kis.get_balance()
+        candidates = scan_candidates()
+        trade_log.log_market_status(
+            kospi      = kospi,
+            balance    = balance,
+            candidates = candidates,
+            mode       = "모의투자" if settings.KIS_IS_VIRTUAL else "실전투자",
+        )
+    except Exception as e:
+        logger.warning("시장 현황 조회 실패: %s", e)
+
 setup_logger()
 logger     = logging.getLogger(__name__)
 trade_log  = logging.getLogger("trade")
@@ -220,6 +235,9 @@ async def main() -> None:
     logger.info("스캔 주기: %d초 | 포지션 모니터: %d초",
                 settings.SCALPING_INTERVAL_SEC, settings.SCALPING_MONITOR_SEC)
     logger.info("=" * 60)
+
+    # 시장 현황 1회 출력 (시작 시)
+    _print_market_status()
 
     coordinator = ScalpingCoordinator()
     tracker     = ScalpingPositionTracker()
