@@ -74,7 +74,7 @@ def calc_moving_averages(ohlcv: list[dict]) -> dict:
     # 정배열: ma5 > ma20 > ma60
     vals = [result.get(f"ma{p}") for p in [5, 20, 60]]
     result["uptrend"] = all(
-        v is not None and vals[i] > vals[i + 1]
+        v is not None and vals[i + 1] is not None and v > vals[i + 1]
         for i, v in enumerate(vals[:-1])
     )
     return result

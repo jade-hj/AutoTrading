@@ -1,12 +1,35 @@
 """
 단타 합의 코디네이터
 
-3개 Agent를 병렬 실행하고 AND 조건으로 최종 결정을 내린다.
+────────────────────────────────────────────────────────────
+설계 원칙: 토론 방식 → 역할 기반 AND 조건 방식으로 변경
+────────────────────────────────────────────────────────────
+[기존] 3개 Agent가 라운드별 토론 + 다수결 투표
+  Round 1: 개별 분석
+  Round 2: 상호 반론
+  Round 3: 최종 투표 (2/3 합의)
 
-실행 조건 (모두 충족해야 주문):
-  - Model A (SignalAgent) : action == BUY 또는 SELL
-  - Model B (RiskAgent)   : approved == True
-  - Model C (FilterAgent) : go == True
+[현재] 각 Agent가 독립적 역할을 수행 → AND 조건으로 최종 결정
+  Step 1: FilterAgent  — 시장 전체 상황 필터 (GO / NO-GO)
+  Step 2: SignalAgent  — 기술적 지표로 진입 신호 판단 (BUY / SELL / HOLD)
+  Step 3: RiskAgent    — 포지션 사이징·손절/익절가 계산 (approved / rejected)
+  → 3단계 모두 통과해야 주문 실행 (하나라도 실패 시 HOLD)
+
+변경 이유:
+  - 토론 방식은 응답 시간이 길고 API 비용이 높음
+  - 역할 분리 방식이 각 기준을 명확히 적용하여 일관성이 높음
+  - FilterAgent가 선제 차단하여 불필요한 LLM 호출을 최소화
+
+────────────────────────────────────────────────────────────
+실행 흐름 (AND 조건)
+────────────────────────────────────────────────────────────
+  FilterAgent (GO?)  →NO→  즉시 HOLD 반환 (SignalAgent 호출 불필요)
+        ↓ YES
+  SignalAgent (BUY/SELL/HOLD?)  →HOLD→  즉시 HOLD 반환
+        ↓ BUY or SELL
+  RiskAgent (approved?)  →REJECT→  HOLD 반환
+        ↓ approved
+  ✅ 주문 실행
 """
 import asyncio
 import logging

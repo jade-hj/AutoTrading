@@ -59,7 +59,9 @@ STOP_LOSS_RATIO    = 0.05   # 손절 비율 (5%)
 TAKE_PROFIT_RATIO  = 0.10   # 익절 비율 (10%)
 ORDER_INTERVAL_SEC = 60     # 합의체 실행 주기 (초)
 
-# ── 단타 설정 ──────────────────────────────────────────────────
+# ── 단타 설정 (공통) ───────────────────────────────────────────
+# Agent 구성: FilterAgent(Llama-3.1-8b) → SignalAgent(Llama-3.3-70b) → RiskAgent(Qwen3-32b)
+# AND 조건 파이프라인: 3단계 모두 통과해야 주문 실행
 SCALPING_INTERVAL_SEC     = 300    # 5분 루프 (초)
 SCALPING_CANDLE_COUNT     = 40     # 분봉 조회 수 (지표 계산용)
 SCALPING_STOP_LOSS        = 0.005  # 손절 -0.5%
@@ -68,14 +70,33 @@ SCALPING_TAKE_PROFIT_2    = 0.015  # 2차 익절 +1.5% (전량 매도)
 SCALPING_MAX_POSITIONS    = 3      # 최대 동시 보유 종목 수
 SCALPING_POSITION_RATIO   = 0.20   # 종목당 최대 투자 비중
 SCALPING_DAILY_LOSS_LIMIT = 0.03   # 일일 손실 한도 -3% (초과 시 당일 중지)
-SCALPING_VOLUME_SURGE     = 3.0    # 거래량 급증 기준 (전일 동시간대 대비 배수)
-SCALPING_RSI_MIN          = 50     # RSI 진입 하한
-SCALPING_RSI_MAX          = 70     # RSI 진입 상한
 SCALPING_EXEC_START       = "09:30"  # 신규 진입 허용 시작
 SCALPING_EXEC_END         = "14:50"  # 신규 진입 허용 종료
-SCALPING_GAP_LIMIT        = 0.02   # 갭 필터 — 시가 갭 ±2% 초과 종목 제외
 SCALPING_KOSPI_RANGE      = 0.003  # 코스피 ±0.3% 이내면 관망
 SCALPING_MONITOR_SEC      = 30     # 포지션 모니터 주기 (초)
+
+# ── 단타 오전 모드 (09:30 ~ 11:59) ────────────────────────────
+# 갭 상승 + 거래량 폭발 초기 포착 전략
+# 기준이 엄격 — 거래량 3.0x 이상인 강한 모멘텀 종목만 진입
+SCALPING_AM_END             = "11:59"  # 오전 모드 종료
+SCALPING_AM_VOLUME_SURGE    = 3.0      # 거래량 급증 기준 (평균 대비 3배)
+SCALPING_AM_RSI_MIN         = 50       # RSI 진입 하한
+SCALPING_AM_RSI_MAX         = 70       # RSI 진입 상한
+SCALPING_AM_CHANGE_RATE_MAX = 25.0     # 등락률 상한 (상한가 근접 제외)
+SCALPING_AM_GAP_LIMIT       = 0.02     # 시가 갭 ±2% 초과 종목 제외
+
+# ── 단타 오후 모드 (12:00 ~ 14:50) ────────────────────────────
+# 눌림목 반등 / 오후 새 테마 상승 초기 포착 전략
+# 오전보다 완화된 기준 적용:
+#   거래량 0.8x (오전 3.0x), RSI 40~70 (오전 50~70),
+#   등락률 0.5~20% (오전 상한 25%만 제한), 갭 5% (오전 2%)
+SCALPING_PM_START            = "12:00"  # 오후 모드 시작
+SCALPING_PM_VOLUME_SURGE     = 0.8      # 거래량 기준 완화 (평균 대비 0.8배)
+SCALPING_PM_RSI_MIN          = 40       # RSI 진입 하한 완화
+SCALPING_PM_RSI_MAX          = 70       # RSI 진입 상한 완화
+SCALPING_PM_CHANGE_RATE_MIN  = 0.5      # 등락률 하한 완화 (최소 모멘텀 확인)
+SCALPING_PM_CHANGE_RATE_MAX  = 20.0     # 등락률 상한 완화 (상한가 근접만 제외)
+SCALPING_PM_GAP_LIMIT        = 0.05     # 갭 필터 완화 (±5%)
 
 # ── 로깅 ───────────────────────────────────────────────────────
 LOG_DIR  = BASE_DIR / "logs"

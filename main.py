@@ -45,8 +45,7 @@ def _print_market_status() -> None:
         logger.warning("시장 현황 조회 실패: %s", e)
 
 setup_logger()
-logger     = logging.getLogger(__name__)
-trade_log  = logging.getLogger("trade")
+logger = logging.getLogger(__name__)
 
 MARKET_OPEN  = dtime(9,  0)
 MARKET_CLOSE = dtime(15, 30)
@@ -72,10 +71,20 @@ def _build_context(candidate: dict, balance: dict, kospi_rate: float) -> Scalpin
 
     indicators = get_all_indicators(candles)
 
-    # 거래량 배수 — 분봉 평균 거래량 대비 현재가 거래량
+    # 거래량 배수 — 최근 5분 평균 ÷ 직전 20분 평균 (지금 급증 중인지 감지)
     volumes = [c["volume"] for c in candles if c["volume"] > 0]
-    avg_vol = sum(volumes[:-1]) / len(volumes[:-1]) if len(volumes) > 1 else 1
-    volume_ratio = volumes[-1] / avg_vol if avg_vol > 0 else 1.0
+    if len(volumes) >= 10:
+        recent  = volumes[-5:]          # 최근 5분
+        prior   = volumes[-25:-5]       # 직전 20분 (없으면 그 이전 전체)
+        if not prior:
+            prior = volumes[:-5]
+        avg_recent = sum(recent) / len(recent) if recent else 1
+        avg_prior  = sum(prior)  / len(prior)  if prior  else 1
+        volume_ratio = avg_recent / avg_prior if avg_prior > 0 else 1.0
+    else:
+        # 데이터 부족 시 단순 비교 (최신 ÷ 이전 평균)
+        avg_vol = sum(volumes[:-1]) / len(volumes[:-1]) if len(volumes) > 1 else 1
+        volume_ratio = volumes[-1] / avg_vol if avg_vol > 0 else 1.0
 
     return ScalpingContext(
         stock_code        = code,
