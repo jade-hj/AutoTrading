@@ -57,6 +57,9 @@ class BotState:
         self.daily_trades: list[TradeRecord] = []
         self.daily_realized_pnl: float = 0.0   # 당일 실현 손익 합계 (원)
 
+        # 당일 손절 종목 재매수 금지 목록
+        self.daily_blocked_codes: set[str] = set()
+
         # 로그 버퍼 (최근 N줄)
         self._log_buffer: deque[dict] = deque(maxlen=LOG_BUFFER_SIZE)
 

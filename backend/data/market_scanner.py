@@ -46,22 +46,33 @@ def scan_candidates() -> list[dict]:
         and s["volume"] >= settings.SCAN_MIN_VOLUME
     ]
 
-    # 거래량 기준 내림차순 정렬 후 상위 N개
+    # 절대 거래량 기준 내림차순 정렬 후 상위 N개 * 2 (volume_ratio 계산 후 재정렬)
     filtered.sort(key=lambda x: x["volume"], reverse=True)
-    top_candidates = filtered[: settings.SCAN_TOP_N]
+    top_candidates = filtered[: settings.SCAN_TOP_N * 2]
 
-    # 기술적 지표 추가 (API 호출 간 딜레이 적용)
+    # 일봉 데이터로 volume_ratio(오늘 거래량 / 20일 평균) 및 기술적 지표 계산
     result = []
     for stock in top_candidates:
         code = stock["stock_code"]
         try:
             time.sleep(_OHLCV_CALL_INTERVAL)
-            ohlcv = kis.get_ohlcv(code, period="D", count=60)
+            ohlcv = kis.get_ohlcv(code, period="D", count=25)
             indicators = get_all_indicators(ohlcv) if ohlcv else {}
-            result.append({**stock, "indicators": indicators})
+
+            # volume_ratio: 오늘 누적 거래량 / 직전 20 거래일 평균 거래량
+            # ohlcv[0] = 오늘(장중 부분 데이터), ohlcv[1:21] = 직전 20일
+            prior_vols = [r["volume"] for r in (ohlcv[1:21] if len(ohlcv) > 1 else ohlcv) if r["volume"] > 0]
+            avg_vol = sum(prior_vols) / len(prior_vols) if prior_vols else 1
+            volume_ratio = stock["volume"] / avg_vol if avg_vol > 0 else 1.0
+
+            result.append({**stock, "indicators": indicators, "volume_ratio": round(volume_ratio, 2)})
         except Exception as e:
             logger.warning("%s 지표 계산 실패 (스킵): %s", code, e)
-            result.append({**stock, "indicators": {}})
+            result.append({**stock, "indicators": {}, "volume_ratio": 1.0})
+
+    # volume_ratio 기준 내림차순 정렬 후 상위 N개
+    result.sort(key=lambda x: x["volume_ratio"], reverse=True)
+    result = result[: settings.SCAN_TOP_N]
 
     logger.info("종목 스캔 완료: %d개 후보", len(result))
     return result

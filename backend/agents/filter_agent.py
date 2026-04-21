@@ -63,7 +63,8 @@ class FilterAgent:
             return (
                 "당신은 한국 주식 단타 매매 시장 상황 분석 전문가입니다.\n"
                 "오전 장(09:30~11:59) 기준으로 거래량 급등 초기 진입이 적합한지 판단합니다.\n"
-                "핵심 기준: 거래량 배수 3.0x 이상, 당일 등락률 과열 아님, 코스피 방향성 확인.\n"
+                f"핵심 기준: 거래량 배수 {settings.SCALPING_AM_VOLUME_SURGE}x 이상, 등락률 +{settings.SCALPING_AM_CHANGE_RATE_MAX}% 미만, 코스피 방향성 확인.\n"
+                "이미 사전 규칙을 통과한 종목에 대해 최종 판단하므로, 명백한 리스크가 없으면 GO를 권장합니다.\n"
                 "응답은 반드시 지정된 JSON 형식으로만 작성하세요."
             )
         else:
@@ -140,64 +141,12 @@ class FilterAgent:
     async def analyze(self, ctx: ScalpingContext) -> MarketDecision:
         session = _get_session()
 
-        # 규칙 기반 사전 필터 (빠른 판단)
+        # 규칙 기반 필터 (LLM 없이 즉시 판단)
         rule_pass, rule_reason = self._check_rules(ctx, session)
         if not rule_pass:
             logger.info("[FilterAgent][%s] %s → NO-GO (%s)", session, ctx.stock_code, rule_reason)
             return MarketDecision(go=False, confidence=1.0, reasoning=rule_reason)
 
-        # LLM 최종 판단
-        if session == "AM":
-            strategy_note = (
-                "오전 전략: 거래량 급등 초기 포착. "
-                f"거래량 배수 {ctx.volume_ratio:.1f}x "
-                f"(기준 {settings.SCALPING_AM_VOLUME_SURGE}x 이상 — 이미 규칙 통과)."
-            )
-        else:
-            strategy_note = (
-                "오후 전략: 눌림목 반등 또는 오후 신규 테마 상승 초기 포착. "
-                f"거래량 배수 {ctx.volume_ratio:.1f}x "
-                f"(기준 {settings.SCALPING_PM_VOLUME_SURGE}x 이상 — 이미 규칙 통과), "
-                f"등락률 {ctx.change_rate:+.2f}% "
-                f"(기준 +{settings.SCALPING_PM_CHANGE_RATE_MIN}~{settings.SCALPING_PM_CHANGE_RATE_MAX}% — 이미 규칙 통과). "
-                "사전 규칙을 이미 통과한 종목이므로, 시장 흐름상 진입이 유망한지 최종 판단하세요."
-            )
-
-        prompt = f"""
-## 현재 시장 상황
-코스피 등락률: {ctx.kospi_change_rate:+.2f}%
-현재 시각: {datetime.now().strftime('%H:%M')}  세션: {'오전' if session == 'AM' else '오후'}
-
-## 분석 종목
-종목: {ctx.stock_code} {ctx.stock_name}
-현재가: {ctx.current_price:,}원  등락률: {ctx.change_rate:+.2f}%
-거래량 배수: {ctx.volume_ratio:.1f}x
-
-## 사전 규칙 체크 결과: 통과
-{strategy_note}
-
-## 판단 요청
-시장 전체 방향성과 종목 수급 측면에서 지금 진입이 적합한지 판단하세요.
-
-다음 JSON 형식으로만 응답하세요:
-{{
-  "go": true | false,
-  "confidence": 0.0~1.0,
-  "reasoning": "시장 상황 판단 근거 (1~2문장)"
-}}
-"""
-        raw = await self._call(prompt, session)
-        data = _parse_json(raw)
-
-        decision = MarketDecision(
-            go         = bool(data.get("go", False)),
-            confidence = float(data.get("confidence", 0.5)),
-            reasoning  = data.get("reasoning", rule_reason),
-        )
-        logger.info("[FilterAgent][%s] %s → %s (확신도: %.0f%%) %s",
-                    session,
-                    ctx.stock_code,
-                    "GO" if decision.go else "NO-GO",
-                    decision.confidence * 100,
-                    decision.reasoning[:60])
-        return decision
+        logger.info("[FilterAgent][%s] %s → GO (거래량 %.1fx, 등락률 %+.2f%%)",
+                    session, ctx.stock_code, ctx.volume_ratio, ctx.change_rate)
+        return MarketDecision(go=True, confidence=1.0, reasoning=rule_reason)

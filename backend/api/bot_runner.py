@@ -38,18 +38,8 @@ def _build_context(candidate: dict, balance: dict, kospi_rate: float) -> Scalpin
 
     indicators = get_all_indicators(candles)
 
-    volumes = [c["volume"] for c in candles if c["volume"] > 0]
-    if len(volumes) >= 10:
-        recent = volumes[-5:]
-        prior  = volumes[-25:-5]
-        if not prior:
-            prior = volumes[:-5]
-        avg_recent = sum(recent) / len(recent) if recent else 1
-        avg_prior  = sum(prior)  / len(prior)  if prior  else 1
-        volume_ratio = avg_recent / avg_prior if avg_prior > 0 else 1.0
-    else:
-        avg_vol = sum(volumes[:-1]) / len(volumes[:-1]) if len(volumes) > 1 else 1
-        volume_ratio = volumes[-1] / avg_vol if avg_vol > 0 else 1.0
+    # volume_ratio: market_scanner에서 계산한 오늘 거래량 / 20일 평균 거래량
+    volume_ratio = candidate.get("volume_ratio", 1.0)
 
     return ScalpingContext(
         stock_code        = code,
@@ -65,6 +55,42 @@ def _build_context(candidate: dict, balance: dict, kospi_rate: float) -> Scalpin
         holding_count     = len(balance["holdings"]),
         kospi_change_rate = kospi_rate,
     )
+
+
+def _sync_holdings_to_tracker(tracker, holdings: list[dict]) -> None:
+    """KIS 잔고에 있지만 PositionTracker에 없는 포지션을 자동 등록한다.
+
+    서버 재시작 후 기존 보유 종목을 손절/익절 모니터링에 포함시키기 위해 사용.
+    매입가 기준으로 손절/익절가를 계산하며, 현재가가 이미 tp1 이상이면 tp1_hit=True로 설정한다.
+    """
+    tracked = set(tracker._positions.keys())
+    for h in holdings:
+        code = h["stock_code"]
+        if code in tracked:
+            continue
+        avg_price   = int(h.get("avg_price", h.get("buy_price", h["current_price"])))
+        current     = h["current_price"]
+        qty         = h["quantity"]
+        sl          = int(avg_price * (1 - settings.SCALPING_STOP_LOSS))
+        tp1         = int(avg_price * (1 + settings.SCALPING_TAKE_PROFIT_1))
+        tp2         = int(avg_price * (1 + settings.SCALPING_TAKE_PROFIT_2))
+        tracker.register(
+            stock_code          = code,
+            stock_name          = h["stock_name"],
+            quantity            = qty,
+            entry_price         = avg_price,
+            stop_loss_price     = sl,
+            take_profit_1_price = tp1,
+            take_profit_2_price = tp2,
+        )
+        # 현재가가 이미 1차 익절가 이상이면 tp1_hit=True 설정 (재시작 후 중복 실행 방지)
+        if current >= tp1:
+            tracker._positions[code]["tp1_hit"] = True
+            logger.info("[sync] %s tp1_hit=True 설정 (현재가 %s원 ≥ tp1 %s원)",
+                        code, f"{current:,}", f"{tp1:,}")
+        logger.info("[sync] KIS잔고 → 트래커 등록: %s %s %d주 (매입가 %s원 | SL %s | TP1 %s | TP2 %s)",
+                    code, h["stock_name"], qty,
+                    f"{avg_price:,}", f"{sl:,}", f"{tp1:,}", f"{tp2:,}")
 
 
 async def run_scanning_loop(coordinator, tracker, stop_event: asyncio.Event) -> None:
@@ -89,6 +115,10 @@ async def run_scanning_loop(coordinator, tracker, stop_event: asyncio.Event) -> 
             kospi_rate = kis.get_kospi_change_rate()
             tracker.set_initial_cash(balance["available_cash"])
 
+            # KIS 잔고에 있는 포지션을 트래커에 자동 동기화 (재시작 후 복원)
+            if balance["holdings"]:
+                _sync_holdings_to_tracker(tracker, balance["holdings"])
+
             logger.info(
                 "스캔 시작 | 예수금: %s원 | 보유: %d종목 | 코스피: %+.2f%%",
                 f"{balance['available_cash']:,}", len(balance["holdings"]), kospi_rate,
@@ -112,8 +142,13 @@ async def run_scanning_loop(coordinator, tracker, stop_event: asyncio.Event) -> 
             for candidate in candidates:
                 if stop_event.is_set():
                     break
+                code = candidate["stock_code"]
                 held_codes = {h["stock_code"] for h in balance["holdings"]}
-                if candidate["stock_code"] in held_codes:
+                if code in held_codes:
+                    continue
+                # 당일 손절 종목 재매수 금지
+                if code in bot_state.daily_blocked_codes:
+                    logger.info("[스캔] %s 당일 손절 종목 — 재매수 금지 스킵", code)
                     continue
 
                 ctx = _build_context(candidate, balance, kospi_rate)

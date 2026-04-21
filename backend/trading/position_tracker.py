@@ -6,6 +6,7 @@ PositionTracker        : 기존 호환용 — 잔고 조회 후 Portfolio 반환
 """
 import asyncio
 import logging
+from datetime import datetime
 
 from kis import rest_client as kis
 from trading.portfolio import Portfolio
@@ -118,6 +119,24 @@ class ScalpingPositionTracker:
         if not self._positions:
             return
 
+        # 장 마감 전 강제 청산 (SCALPING_FORCE_CLOSE=True 이고 FORCE_CLOSE_TIME 이후)
+        if settings.SCALPING_FORCE_CLOSE:
+            now_str = datetime.now().strftime("%H:%M")
+            if now_str >= settings.SCALPING_FORCE_CLOSE_TIME:
+                codes = list(self._positions.keys())
+                if codes:
+                    logger.info("[PositionTracker] 장 마감 강제 청산 시작 (%s 이후, %d종목)",
+                                settings.SCALPING_FORCE_CLOSE_TIME, len(codes))
+                    for code in codes:
+                        pos = self._positions.get(code)
+                        if pos is None:
+                            continue
+                        try:
+                            self._execute_sell(code, pos["quantity"], reason="장마감 청산")
+                        except Exception as e:
+                            logger.error("[PositionTracker] 강제 청산 실패: %s — %s", code, e)
+                    return
+
         codes = list(self._positions.keys())
         for code in codes:
             pos = self._positions.get(code)
@@ -136,12 +155,15 @@ class ScalpingPositionTracker:
 
         # ── 손절 ─────────────────────────────────────────────
         if current <= pos["stop_loss"]:
+            from api.state import bot_state
             logger.warning(
                 "[PositionTracker] 손절 실행: %s %s | 현재가=%s 손절가=%s",
                 code, name, f"{current:,}", f"{pos['stop_loss']:,}",
             )
             self._execute_sell(code, qty, reason="손절")
-            self._record_pnl(pos["entry_price"], current, qty)
+            # 당일 재매수 금지 등록
+            bot_state.daily_blocked_codes.add(code)
+            logger.info("[PositionTracker] 당일 재매수 금지 등록: %s", code)
             return
 
         # ── 2차 익절 ─────────────────────────────────────────
@@ -151,25 +173,30 @@ class ScalpingPositionTracker:
                 code, name, f"{current:,}", f"{pos['tp2']:,}",
             )
             self._execute_sell(code, qty, reason="2차 익절")
-            self._record_pnl(pos["entry_price"], current, qty)
             return
 
         # ── 1차 익절 (절반 매도) ─────────────────────────────
         if current >= pos["tp1"] and not pos["tp1_hit"]:
-            half = max(1, qty // 2)
+            # 잔여 수량이 5주 이하면 전량 매도 (1주씩 반복 방지)
+            if qty <= 5:
+                sell_qty = qty
+                label = "1차 익절(전량-소수량)"
+            else:
+                sell_qty = max(1, qty // 2)
+                label = "1차 익절"
             logger.info(
-                "[PositionTracker] 1차 익절 실행: %s %s %d주(절반) | 현재가=%s",
-                code, name, half, f"{current:,}",
+                "[PositionTracker] %s 실행: %s %s %d주 | 현재가=%s",
+                label, code, name, sell_qty, f"{current:,}",
             )
-            self._execute_sell(code, half, reason="1차 익절")
-            self._record_pnl(pos["entry_price"], current, half)
-            pos["quantity"]  -= half
+            self._execute_sell(code, sell_qty, reason=label)
+            pos["quantity"]  -= sell_qty
             pos["tp1_hit"]    = True
             # 잔여 수량 0이면 포지션 제거
             if pos["quantity"] <= 0:
                 self.unregister(code)
 
     def _execute_sell(self, code: str, qty: int, reason: str) -> None:
+        from api.state import bot_state  # 순환 import 방지
         pos = self._positions.get(code, {})
         try:
             price_data  = kis.get_current_price(code)
@@ -178,6 +205,8 @@ class ScalpingPositionTracker:
 
             order = kis.place_order(code, "SELL", qty, price=0)
             order_no = order["order_no"]
+
+            pnl = (sell_price - entry_price) * qty
 
             # 구조화 거래 로그 (콘솔 + 파일)
             trade_log.log_sell(
@@ -189,6 +218,18 @@ class ScalpingPositionTracker:
                 reason      = reason,
                 order_no    = order_no,
             )
+            # API 상태 업데이트 (daily_pnl 반영)
+            pnl_rate = (sell_price - entry_price) / entry_price * 100 if entry_price else 0.0
+            bot_state.record_sell(
+                stock_code = code,
+                stock_name = pos.get("stock_name", code),
+                price      = sell_price,
+                quantity   = qty,
+                pnl        = pnl,
+                pnl_rate   = pnl_rate,
+                reason     = reason,
+                order_no   = order_no,
+            )
             self._record_pnl(entry_price, sell_price, qty)
             self.unregister(code)
         except Exception as e:
@@ -197,5 +238,5 @@ class ScalpingPositionTracker:
     def _record_pnl(self, entry: int, exit_price: int, qty: int) -> None:
         pnl = (exit_price - entry) * qty
         self._daily_loss += pnl
-        logger.info("[PositionTracker] 실현 손익: %+,d원 | 당일 누적: %+,d원",
-                    pnl, int(self._daily_loss))
+        logger.info("[PositionTracker] 실현 손익: %s원 | 당일 누적: %s원",
+                    f"{pnl:+,}", f"{int(self._daily_loss):+,}")
